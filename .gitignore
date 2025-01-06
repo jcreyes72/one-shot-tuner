@@ -1,0 +1,27 @@
+# Compiled object files
+*.o
+*.obj
+
+# Compiled binary files
+*.exe
+*.out
+*.app
+
+# CMake build files
+/build/
+CMakeFiles/
+CMakeCache.txt
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Audio files or large media files (optional, if you don't want to track audio)
+*.wav
+*.mp3
+
+# macOS-specific files
+.DS_Store
+
+# Neovim swap files
+*.swp
