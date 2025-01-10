@@ -3,6 +3,8 @@
 #include <fftw3.h>
 #include <sndfile.h>
 #include <string>
+#include <vector>
+#include <limits>
 
 // Function to convert frequency to note
 std::string frequencyToNote(double frequency) {
@@ -46,7 +48,21 @@ std::string frequencyToNote(double frequency) {
     return notes[closestNoteIndex];
 }
 
-// Main program remains the same...
+// Function for parabolic interpolation to refine the peak frequency
+double refineFrequency(int peakIndex, double* magnitudes, int N, double sampleRate) {
+    if (peakIndex <= 0 || peakIndex >= N / 2 - 1) {
+        return peakIndex * sampleRate / N; // Cannot interpolate, return FFT bin frequency
+    }
+
+    double alpha = magnitudes[peakIndex - 1];
+    double beta = magnitudes[peakIndex];
+    double gamma = magnitudes[peakIndex + 1];
+
+    // Parabolic interpolation formula
+    double peakAdjustment = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma);
+    return (peakIndex + peakAdjustment) * sampleRate / N;
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <audio_file>" << std::endl;
@@ -90,27 +106,28 @@ int main(int argc, char* argv[]) {
         // Perform FFT
         fftw_execute(plan);
 
-        // Find the fundamental frequency (lowest significant frequency)
-        double fundamentalFrequency = 0.0;
+        // Calculate magnitudes and find the peak index
+        std::vector<double> magnitudes(N / 2);
         double maxMagnitude = 0.0;
+        int peakIndex = 0;
 
         for (int i = 0; i < N / 2; ++i) {
             double real = output[i][0];
             double imag = output[i][1];
-            double magnitude = sqrt(real * real + imag * imag);
+            magnitudes[i] = sqrt(real * real + imag * imag);
 
-            // Consider only frequencies with significant magnitudes
-            if (magnitude > 0.01 && i * (fileInfo.samplerate / N) > 20) {
-                if (magnitude > maxMagnitude) {
-                    maxMagnitude = magnitude;
-                    fundamentalFrequency = i * (double)fileInfo.samplerate / N;
-                }
+            if (magnitudes[i] > maxMagnitude) {
+                maxMagnitude = magnitudes[i];
+                peakIndex = i;
             }
         }
 
+        // Refine the peak frequency using parabolic interpolation
+        double fundamentalFrequency = refineFrequency(peakIndex, magnitudes.data(), N, fileInfo.samplerate);
         std::string note = frequencyToNote(fundamentalFrequency);
-        std::cout << "Fundamental frequency: " << fundamentalFrequency 
-                  << " Hz, Magnitude: " << maxMagnitude 
+
+        std::cout << "Fundamental frequency: " << fundamentalFrequency
+                  << " Hz, Magnitude: " << maxMagnitude
                   << ", Note: " << note << "\n";
     }
 
