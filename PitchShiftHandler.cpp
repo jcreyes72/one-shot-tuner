@@ -3,77 +3,77 @@
 #include <vector>
 #include <string>
 #include <cmath>
-#include <rubberband/RubberBandStretcher.h>
 #include <sndfile.h>
+#include "signalsmith-stretch.h"
 
-bool pitchShiftData(const std::vector<float>& audioData,
+// Function to pitch shift the processed audio data
+bool pitchShiftData(const std::vector<float>& AudioData,
                     int sampleRate,
                     int channels,
                     double semitoneShift,
                     const std::string& outputFile) {
-    // 1. Calculate pitch factor
-    double pitchFactor = std::pow(2.0, semitoneShift / 12.0);
-
-    // 2. Initialize RubberBand
-    RubberBand::RubberBandStretcher stretcher(sampleRate, channels,
-        RubberBand::RubberBandStretcher::OptionProcessRealTime);
-
-    stretcher.setTimeRatio(1.0); // Maintain original length
-    stretcher.setPitchScale(pitchFactor);
-
-    // 3. De-interleave audio data into separate channel buffers
-    std::vector<std::vector<float>> channelBuffers(channels, std::vector<float>(audioData.size() / channels));
-    for (size_t i = 0; i < audioData.size(); ++i) {
-        int channel = i % channels;
-        channelBuffers[channel][i / channels] = audioData[i];
+    if (AudioData.empty()) {
+        std::cerr << "Error: No audio data to process.\n";
+        return false;
     }
 
-    // Create an array of pointers to channel data
-    std::vector<const float*> channelPointers(channels);
-    for (int ch = 0; ch < channels; ++ch) {
-        channelPointers[ch] = channelBuffers[ch].data();
-    }
+    // 1. Initialize the Signalsmith stretcher
+    signalsmith::stretch::SignalsmithStretch<float> stretcher;
+    stretcher.presetDefault(channels, sampleRate);
 
-    // 4. Feed samples into Rubber Band
-    stretcher.process(channelPointers.data(), audioData.size() / channels, false);
+    // 2. Set the transpose semitones 
+    stretcher.setTransposeSemitones(semitoneShift);
 
-    // 5. Retrieve processed data
-    int avail = stretcher.available();
-    std::vector<float> outData(avail * channels);
-    std::vector<std::vector<float>> outChannelBuffers(channels, std::vector<float>(avail));
-    std::vector<float*> outChannelPointers(channels);
-    for (int ch = 0; ch < channels; ++ch) {
-        outChannelPointers[ch] = outChannelBuffers[ch].data();
-    }
+    // 3. Prepare non-interleaved input buffers (required by Signalsmith)
+    std::vector<std::vector<float>> inputBuffers(channels, std::vector<float>(AudioData.size() / channels));
 
-    int got = stretcher.retrieve(outChannelPointers.data(), avail);
-
-    // Re-interleave output data
-    for (int frame = 0; frame < got; ++frame) {
+    // Convert interleaved input to non-interleaved format
+    for (size_t sample = 0; sample < AudioData.size() / channels; ++sample) {
         for (int ch = 0; ch < channels; ++ch) {
-            outData[frame * channels + ch] = outChannelBuffers[ch][frame];
+            inputBuffers[ch][sample] = AudioData[sample * channels + ch]; 
         }
     }
 
-    // 6. Write the processed samples to the output file
-    SF_INFO sfinfoOut;
+    // 4. Prepare output buffers with the **same size as input** (since we're not stretching)
+    std::vector<std::vector<float>> outputBuffers(channels, std::vector<float>(inputBuffers[0].size()));
+
+    // 5. Process the audio without time-stretching
+    stretcher.process(inputBuffers.data(), inputBuffers[0].size(), outputBuffers.data(), outputBuffers[0].size());
+
+
+    // 6. Convert non-interleaved output back to interleaved format for libsndfile
+    std::vector<float> interleavedOutput(outputBuffers[0].size() * channels);
+
+    for (size_t sample = 0; sample < outputBuffers[0].size(); ++sample) {
+        for (int ch = 0; ch < channels; ++ch) {
+            interleavedOutput[sample * channels + ch] = outputBuffers[ch][sample];
+        }
+    }
+
+
+    // 7. Set up libsndfile output configuration
+    SF_INFO sfinfoOut = {};
     sfinfoOut.samplerate = sampleRate;
     sfinfoOut.channels = channels;
     sfinfoOut.format = SF_FORMAT_WAV | SF_FORMAT_FLOAT;
 
+    // 8. Open the output file
     SNDFILE* outFile = sf_open(outputFile.c_str(), SFM_WRITE, &sfinfoOut);
     if (!outFile) {
         std::cerr << "Error: Unable to open output file: " << outputFile << std::endl;
         return false;
     }
 
-    sf_writef_float(outFile, outData.data(), got);
+    // 9. Write the processed audio data to the output file
+    sf_count_t framesWritten = sf_writef_float(outFile, interleavedOutput.data(), interleavedOutput.size() / channels);
     sf_close(outFile);
 
-    // Example warning for missing data
-    if (got != avail) {
-        std::cerr << "Warning: Not all data was retrieved from the stretcher." << std::endl;
+    if (framesWritten != static_cast<sf_count_t>(interleavedOutput.size() / channels)) {
+        std::cerr << "Warning: Not all frames were written to the output file.\n";
+    } else {
+        std::cout << "Tuned file saved as: " << outputFile << "\n";
     }
 
     return true;
+
 }
