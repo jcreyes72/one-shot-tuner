@@ -1,13 +1,16 @@
 #include "AudioFileHandler.h"
 #include "FrequencyAnalysis.h"
 #include "NoteMapping.h"
-#include "PitchShiftHandler.h" // Include pitch-shifting logic
+#include "PitchShiftHandler.h" // Use the pitch-shifting logic declared here
 #include <iostream>
 #include <map>
 #include <unordered_map>
 #include <string>
 #include <cmath>       // for std::sqrt, std::cos, M_PI
 #include "GlobalData.h"
+#include <sndfile.h>
+#include "signalsmith-stretch.h"
+#include <fftw3.h>
 
 std::unordered_map<std::string, int> noteCounts;         // To store note occurrences
 std::unordered_map<std::string, double> noteMagnitudes;  // To store cumulative magnitudes
@@ -15,16 +18,34 @@ std::unordered_map<std::string, double> noteMagnitudes;  // To store cumulative 
 AudioFileInfo readAudioFile(const char* filepath) {
     SF_INFO fileInfo = {0};
     SNDFILE* audioFile = sf_open(filepath, SFM_READ, &fileInfo);
-
     AudioFileInfo info = {
         audioFile,
         fileInfo,
         fileInfo.samplerate,
         fileInfo.channels,
-        static_cast<int>(fileInfo.frames)
+        static_cast<int>(fileInfo.frames),
+        std::string(filepath) // store the original file path
     };
-
     return info;
+}
+
+// New function: Re-opens the file and performs pitch shifting using a pristine copy.
+bool tuneAudioFile(const std::string &filepath, int semitoneShift) {
+    SF_INFO sfinfo = {0};
+    SNDFILE* inFile = sf_open(filepath.c_str(), SFM_READ, &sfinfo);
+    if (!inFile) {
+        std::cerr << "Error: Unable to open file " << filepath << " for tuning.\n";
+        return false;
+    }
+    std::vector<float> audioData(sfinfo.frames * sfinfo.channels);
+    sf_count_t framesRead = sf_readf_float(inFile, audioData.data(), sfinfo.frames);
+    sf_close(inFile);
+    if (framesRead != sfinfo.frames) {
+         std::cerr << "Warning: Not all frames were read for tuning.\n";
+    }
+    // The output file name can be customized if desired.
+    std::string outputFile = "tuned.wav";
+    return pitchShiftData(audioData, sfinfo.samplerate, sfinfo.channels, semitoneShift, outputFile);
 }
 
 void processAudio(const AudioFileInfo& fileInfo) {
@@ -110,9 +131,8 @@ void processAudio(const AudioFileInfo& fileInfo) {
 
         int semitoneShift = noteToSemitoneShift.at(noteWithoutOctave);
 
-        std::string outputFile = "tuned_" + dominantNote + ".wav";
-        if (pitchShiftData(stereoAudioData, fileInfo.samplerate, fileInfo.channels, semitoneShift, outputFile)) {
-            std::cout << "Tuned file saved as: " << outputFile << "\n";
+        if (tuneAudioFile(fileInfo.filepath, semitoneShift)) {
+            std::cout << "Tuned file saved successfully.\n";
         } else {
             std::cerr << "Error: Failed to tune the audio file.\n";
         }

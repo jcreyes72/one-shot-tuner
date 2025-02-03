@@ -5,10 +5,10 @@
 #include <vector>
 
 // Takes in:
-//  - audioData: The mono audio data as a vector of floats
+//  - audioData: The audio data as a vector of floats (either mono or multi-channel)
 //  - sampleRate: The sample rate of the audio
-//  - channels: Number of channels (should be 1 for mono data)
-//  - semitoneShift: How many semitones to shift (+ up, - down) so the note becomes C
+//  - channels: Number of channels
+//  - semitoneShift: Number of semitones to shift (positive for upward, negative for downward)
 //  - outputFile: Destination path for the tuned file
 //
 // Returns whether the pitch shift succeeded.

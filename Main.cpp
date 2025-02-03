@@ -3,6 +3,7 @@
 #include "AudioFileHandler.h"
 #include "FrequencyAnalysis.h"
 #include "NoteMapping.h"
+#include <sndfile.h>
 
 int main(int argc, char* argv[]) {
     // Check for correct usage
